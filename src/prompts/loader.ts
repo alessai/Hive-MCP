@@ -4,6 +4,16 @@ import { PROMPTS_DIR } from "../config/constants.js";
 
 const SAFE_ROLE = /^[a-zA-Z0-9_-]+$/;
 
+const CAPABILITIES_PREAMBLE = `You have full tool access. Use your tools when needed:
+- Read, write, and edit files on the local filesystem
+- Execute shell commands (build, test, lint, git, etc.)
+- Search the web for up-to-date information
+- Browse and fetch web pages
+
+Do not hesitate to use these capabilities when they help complete the task.
+
+`;
+
 function resolveTemplate(role: string): string | null {
   if (!SAFE_ROLE.test(role)) return null;
 
@@ -28,7 +38,7 @@ function resolveTemplate(role: string): string | null {
 export function loadSystemPrompt(role: string): string | null {
   const template = resolveTemplate(role);
   if (!template) return null;
-  return template.replace(/\{\{PROMPT\}\}/g, "").trimEnd();
+  return CAPABILITIES_PREAMBLE + template.replace(/\{\{PROMPT\}\}/g, "").trimEnd();
 }
 
 /**
