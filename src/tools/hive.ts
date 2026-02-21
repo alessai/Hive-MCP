@@ -1,11 +1,11 @@
-import type { AgentRequest, AgentResponse } from "../types.js";
+import type { AgentRequest, AgentResponse, ProgressCallback } from "../types.js";
 import { getClient, listClients } from "../config/registry.js";
 import { createAgent } from "../agents/factory.js";
 import { getParser } from "../parsers/index.js";
 import { loadSystemPrompt } from "../prompts/loader.js";
 import { getThread, createThread, addTurn, buildContext } from "../continuation/store.js";
 
-export async function handleHive(request: AgentRequest): Promise<AgentResponse> {
+export async function handleHive(request: AgentRequest, onProgress?: ProgressCallback): Promise<AgentResponse> {
   const startTime = Date.now();
   const role = request.role ?? "default";
 
@@ -27,7 +27,7 @@ export async function handleHive(request: AgentRequest): Promise<AgentResponse> 
     // Build user prompt with continuation context
     let userPrompt = request.prompt;
     if (request.continuation_id) {
-      const context = buildContext(request.continuation_id);
+      const context = await buildContext(request.continuation_id);
       if (context) {
         userPrompt = `${context}\n\n---\n\n${request.prompt}`;
       }
@@ -39,14 +39,17 @@ export async function handleHive(request: AgentRequest): Promise<AgentResponse> 
     const systemPrompt = loadSystemPrompt(role);
 
     // Spawn agent
+    await onProgress?.(`Spawning ${request.client} CLI...`, 0, 100);
     const agent = createAgent(client);
     const spawnResult = await agent.run(
       systemPrompt ?? undefined,
       userPrompt,
       request.cwd,
+      onProgress,
     );
 
     // Parse output
+    await onProgress?.(`Parsing ${request.client} output...`, 90, 100);
     const parser = getParser(client.parser);
     let response: string;
     try {
@@ -85,16 +88,16 @@ export async function handleHive(request: AgentRequest): Promise<AgentResponse> 
 
     // Store continuation turns only on success — failed responses pollute context
     if (request.continuation_id && success) {
-      if (!getThread(request.continuation_id)) {
-        createThread(request.continuation_id);
+      if (!await getThread(request.continuation_id)) {
+        await createThread(request.continuation_id);
       }
-      addTurn(request.continuation_id, {
+      await addTurn(request.continuation_id, {
         role: "user",
         content: request.prompt,
         client: request.client,
         timestamp: startTime,
       });
-      addTurn(request.continuation_id, {
+      await addTurn(request.continuation_id, {
         role: "assistant",
         content: response,
         client: request.client,

@@ -1,8 +1,10 @@
-import type { ConsensusRequest, ConsensusResponse, AgentRequest } from "../types.js";
+import type { ConsensusRequest, ConsensusResponse, AgentRequest, ProgressCallback } from "../types.js";
 import { handleHive } from "./hive.js";
 
-export async function handleConsensus(request: ConsensusRequest): Promise<ConsensusResponse> {
+export async function handleConsensus(request: ConsensusRequest, onProgress?: ProgressCallback): Promise<ConsensusResponse> {
   const role = request.role ?? "default";
+  const total = request.clients.length;
+  let completed = 0;
 
   // Spawn all CLIs in parallel
   const promises = request.clients.map(client => {
@@ -12,15 +14,23 @@ export async function handleConsensus(request: ConsensusRequest): Promise<Consen
       prompt: request.prompt,
       cwd: request.cwd,
     };
-    return handleHive(agentRequest).catch((err): ReturnType<typeof handleHive> extends Promise<infer T> ? T : never => ({
-      client,
-      role,
-      success: false,
-      response: "",
-      error: `Internal error: ${err instanceof Error ? err.message : String(err)}`,
-      duration_ms: 0,
-      truncated: false,
-    }));
+    return handleHive(agentRequest).then(result => {
+      completed++;
+      onProgress?.(`Agent ${completed}/${total} (${client}) complete`, completed, total)?.catch(() => {});
+      return result;
+    }).catch((err): ReturnType<typeof handleHive> extends Promise<infer T> ? T : never => {
+      completed++;
+      onProgress?.(`Agent ${completed}/${total} (${client}) failed`, completed, total)?.catch(() => {});
+      return {
+        client,
+        role,
+        success: false,
+        response: "",
+        error: `Internal error: ${err instanceof Error ? err.message : String(err)}`,
+        duration_ms: 0,
+        truncated: false,
+      };
+    });
   });
 
   const responses = await Promise.all(promises);

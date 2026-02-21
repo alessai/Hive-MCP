@@ -4,6 +4,7 @@ import { z } from "zod";
 import { handleHive } from "./tools/hive.js";
 import { handleConsensus } from "./tools/hive-consensus.js";
 import { listClients, loadAllClients } from "./config/registry.js";
+import { createProgressCallback } from "./progress.js";
 
 const server = new McpServer({
   name: "hive",
@@ -33,15 +34,16 @@ server.tool(
       "Working directory for the CLI process. Defaults to server's cwd."
     ),
   },
-  async (params) => {
+  async (params, extra) => {
     try {
+      const onProgress = createProgressCallback(extra);
       const result = await handleHive({
         client: params.client,
         prompt: params.prompt,
         role: params.role,
         continuation_id: params.continuation_id,
         cwd: params.cwd,
-      });
+      }, onProgress);
 
       let text = "";
       if (result.success) {
@@ -84,14 +86,15 @@ server.tool(
       "Working directory for all CLI processes. Defaults to server's cwd."
     ),
   },
-  async (params) => {
+  async (params, extra) => {
     try {
+      const onProgress = createProgressCallback(extra);
       const result = await handleConsensus({
         clients: params.clients,
         prompt: params.prompt,
         role: params.role,
         cwd: params.cwd,
-      });
+      }, onProgress);
 
       let text = `**Consensus: ${result.responses.length} agents queried (${result.role})**\n\n${result.summary}\n\n`;
 

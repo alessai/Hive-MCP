@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import type { ResolvedClient, SpawnResult } from "../types.js";
+import type { ResolvedClient, SpawnResult, ProgressCallback } from "../types.js";
 import { MAX_OUTPUT_CHARS } from "../config/constants.js";
 import { log } from "../log.js";
 
@@ -46,7 +46,7 @@ export class BaseCLIAgent {
   }
 
   /** Run the CLI process */
-  async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string): Promise<SpawnResult> {
+  async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
     const args = this.buildArgs(systemPrompt, userPrompt);
     const stdinContent = this.buildStdin(systemPrompt, userPrompt);
     // Strip env vars that block nested sessions or corrupt JSON output
@@ -66,6 +66,7 @@ export class BaseCLIAgent {
       let stderr = "";
       let timedOut = false;
       let settled = false;
+      const spawnStart = Date.now();
 
       const child = spawn(this.client.command, args, {
         cwd: cwd ?? process.cwd(),
@@ -75,6 +76,18 @@ export class BaseCLIAgent {
       });
 
       activeChildren.add(child);
+
+      // Periodic progress updates every 10s while waiting
+      const progressInterval = onProgress ? setInterval(() => {
+        const elapsed = Math.round((Date.now() - spawnStart) / 1000);
+        const bytesReceived = stdout.length + stderr.length;
+        const progressPct = Math.min(80, Math.round((elapsed / this.client.timeout_seconds) * 80));
+        onProgress(
+          `Waiting for ${this.client.name} response... (${elapsed}s elapsed, ${bytesReceived.toLocaleString()} bytes received)`,
+          progressPct,
+          100,
+        ).catch(() => {}); // fire-and-forget, don't crash on notification failure
+      }, 10_000) : undefined;
 
       const timer = setTimeout(() => {
         timedOut = true;
@@ -110,6 +123,7 @@ export class BaseCLIAgent {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (progressInterval) clearInterval(progressInterval);
         activeChildren.delete(child);
         log(`[${this.client.name}] Exited: code=${exitCode} timedOut=${timedOut} stdout=${stdout.length}bytes stderr=${stderr.length}bytes`);
         resolve({ stdout, stderr, exitCode, timedOut });

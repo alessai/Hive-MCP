@@ -1,5 +1,5 @@
 import { BaseCLIAgent } from "./base.js";
-import type { ResolvedClient, SpawnResult } from "../types.js";
+import type { ResolvedClient, SpawnResult, ProgressCallback } from "../types.js";
 
 export class GeminiAgent extends BaseCLIAgent {
   constructor(client: ResolvedClient) {
@@ -52,8 +52,8 @@ export class GeminiAgent extends BaseCLIAgent {
   }
 
   /** Filter known Gemini stderr noise */
-  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string): Promise<SpawnResult> {
-    const result = await super.run(systemPrompt, userPrompt, cwd);
+  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
+    const result = await super.run(systemPrompt, userPrompt, cwd, onProgress);
 
     if (result.stderr) {
       result.stderr = result.stderr

@@ -1,5 +1,5 @@
 import { BaseCLIAgent } from "./base.js";
-import type { ResolvedClient, SpawnResult } from "../types.js";
+import type { ResolvedClient, SpawnResult, ProgressCallback } from "../types.js";
 
 export class CodexAgent extends BaseCLIAgent {
   constructor(client: ResolvedClient) {
@@ -19,8 +19,8 @@ export class CodexAgent extends BaseCLIAgent {
   }
 
   /** Codex JSONL output can have broken lines — stderr is useful for diagnostics */
-  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string): Promise<SpawnResult> {
-    const result = await super.run(systemPrompt, userPrompt, cwd);
+  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
+    const result = await super.run(systemPrompt, userPrompt, cwd, onProgress);
     return result;
   }
 }

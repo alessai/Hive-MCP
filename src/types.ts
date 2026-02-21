@@ -87,3 +87,5 @@ export interface SpawnResult {
   exitCode: number | null;
   timedOut: boolean;
 }
+
+export type ProgressCallback = (message: string, progress: number, total: number) => Promise<void>;
