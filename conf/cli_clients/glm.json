@@ -4,7 +4,7 @@
   "runner": "claude",
   "additional_args": [
     "--settings", "/home/saif/.claude-zai/settings.json",
-    "--permission-mode", "acceptEdits",
+    "--permission-mode", "bypassPermissions",
     "--model", "opus"
   ],
   "env": {},
