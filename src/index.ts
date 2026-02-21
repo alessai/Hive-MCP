@@ -14,11 +14,11 @@ const server = new McpServer({
 // Load all CLI client configs on startup
 loadAllClients();
 
-// --- hive tool ---
+// --- hivesingle tool ---
 server.tool(
-  "hive",
+  "hivesingle",
   "Spawn a single CLI agent (Gemini, Claude, Codex, or custom) with an optional role-specific system prompt. " +
-  "Use this to delegate tasks to external AI CLIs that have full tool access (file system, web search, etc).",
+  "Use this to delegate tasks to a specific external AI CLI that has full tool access (file system, web search, etc).",
   {
     client: z.string().describe(
       `CLI client to use. Available: ${listClients().join(", ")}`
@@ -69,14 +69,14 @@ server.tool(
   }
 );
 
-// --- hive_consensus tool ---
+// --- hive tool (consensus, defaults to gemini + glm) ---
 server.tool(
-  "hive_consensus",
-  "Spawn 2+ CLI agents in parallel with the same prompt, collect all responses for comparison. " +
-  "Use this to get diverse perspectives or validate answers across multiple AI models.",
+  "hive",
+  "Spawn 2+ CLI agents in parallel with the same prompt, collect all responses. " +
+  "Defaults to gemini + glm. Use this to delegate tasks to external AI CLIs that have full tool access.",
   {
-    clients: z.array(z.string()).min(2).describe(
-      `CLI clients to query in parallel. Available: ${listClients().join(", ")}`
+    clients: z.array(z.string()).min(2).default(["gemini", "glm"]).describe(
+      `CLI clients to query in parallel. Defaults to ["gemini", "glm"]. Available: ${listClients().join(", ")}`
     ),
     prompt: z.string().describe("The task or question to send to all CLI agents"),
     role: z.string().optional().describe(
