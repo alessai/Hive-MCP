@@ -1,0 +1,24 @@
+import type { InternalDefaults } from "../types.js";
+
+export const INTERNAL_DEFAULTS: Record<string, InternalDefaults> = {
+  gemini: {
+    parser: "gemini",
+    output_args: ["-o", "json"],
+    prompt_injection: "flag",
+    prompt_flag: "-p",
+    runner: "gemini",
+  },
+  claude: {
+    parser: "claude",
+    output_args: ["--print", "--output-format", "json", "--no-session-persistence"],
+    prompt_injection: "flag",
+    prompt_flag: "--append-system-prompt",
+    runner: "claude",
+  },
+  codex: {
+    parser: "codex",
+    output_args: ["exec", "--json"],
+    prompt_injection: "stdin",
+    runner: "codex",
+  },
+};

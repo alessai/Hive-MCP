@@ -1,0 +1,9 @@
+{
+  "name": "gemini",
+  "command": "gemini",
+  "runner": "gemini",
+  "additional_args": ["--approval-mode", "yolo", "-m", "gemini-2.5-pro"],
+  "env": {},
+  "timeout_seconds": 300,
+  "roles": {}
+}

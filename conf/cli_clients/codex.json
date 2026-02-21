@@ -1,0 +1,9 @@
+{
+  "name": "codex",
+  "command": "codex",
+  "runner": "codex",
+  "additional_args": [],
+  "env": {},
+  "timeout_seconds": 600,
+  "roles": {}
+}

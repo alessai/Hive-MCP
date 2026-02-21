@@ -1,0 +1,9 @@
+{
+  "name": "claude",
+  "command": "claude",
+  "runner": "claude",
+  "additional_args": ["--permission-mode", "bypassPermissions"],
+  "env": {},
+  "timeout_seconds": 1800,
+  "roles": {}
+}
