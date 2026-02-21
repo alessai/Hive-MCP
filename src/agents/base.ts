@@ -105,7 +105,10 @@ export class BaseCLIAgent {
       }, timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer) => {
-        if (stdout.length < MAX_OUTPUT_CHARS * 2) {
+        // Raw buffer needs to be large enough to capture verbose JSON event streams
+        // (Claude's --output-format json includes init events with all tool names).
+        // Final response is still capped at MAX_OUTPUT_CHARS in hive.ts.
+        if (stdout.length < MAX_OUTPUT_CHARS * 20) {
           stdout += chunk.toString();
         }
       });
