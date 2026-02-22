@@ -3,7 +3,6 @@
   "command": "claude",
   "runner": "claude",
   "additional_args": [
-    "--settings", "/home/saif/.claude-zai/settings.json",
     "--permission-mode", "bypassPermissions",
     "--model", "opus"
   ],

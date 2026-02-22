@@ -1,7 +1,7 @@
 {
   "name": "hive-mcp",
   "version": "1.0.0",
-  "description": "Hive MCP Server — CLI-to-CLI bridge for spawning AI CLIs as subagents",
+  "description": "MCP server that spawns external AI CLIs (Gemini, Claude, Codex) as subagents with role-based system prompts",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -9,6 +9,26 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "cli",
+    "gemini",
+    "claude",
+    "codex",
+    "multi-agent",
+    "subagent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alessai/Hive-MCP.git"
+  },
+  "homepage": "https://github.com/alessai/Hive-MCP",
+  "bugs": {
+    "url": "https://github.com/alessai/Hive-MCP/issues"
+  },
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "zod": "^3.25.0"
