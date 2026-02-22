@@ -1,5 +1,5 @@
 {
-  "name": "hive-mcp",
+  "name": "@alessai/hive-mcp",
   "version": "1.0.0",
   "description": "MCP server that spawns external AI CLIs (Gemini, Claude, Codex) as subagents with role-based system prompts",
   "type": "module",

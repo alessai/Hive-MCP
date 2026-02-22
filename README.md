@@ -16,7 +16,7 @@ Each agent runs as a child process with full tool access (filesystem, shell, web
 ### Claude Code
 
 ```bash
-claude mcp add hive -- npx hive-mcp
+claude mcp add hive -- npx @alessai/hive-mcp
 ```
 
 ### Cursor / Windsurf / other MCP hosts
