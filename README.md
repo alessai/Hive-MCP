@@ -11,33 +11,35 @@ Hive exposes two MCP tools:
 
 Each agent runs as a child process with full tool access (filesystem, shell, web search) — whatever the underlying CLI supports.
 
-## Quick start
+## Install
+
+### Claude Code
 
 ```bash
-git clone https://github.com/alessai/Hive-MCP.git
-cd Hive-MCP
-npm install
-npm run build
+claude mcp add hive -- npx hive-mcp
 ```
 
-### Add to Claude Code
+### Cursor / Windsurf / other MCP hosts
 
-```bash
-claude mcp add hive node /path/to/Hive-MCP/dist/index.js
-```
-
-### Add to other MCP hosts
-
-Add to your MCP config (e.g. `settings.json`, `mcp.json`):
+Add to your MCP config:
 
 ```json
 {
   "hive": {
     "type": "stdio",
-    "command": "node",
-    "args": ["/path/to/Hive-MCP/dist/index.js"]
+    "command": "npx",
+    "args": ["hive-mcp"]
   }
 }
+```
+
+### From source
+
+```bash
+git clone https://github.com/alessai/Hive-MCP.git
+cd Hive-MCP
+npm install && npm run build
+claude mcp add hive node ./dist/index.js
 ```
 
 ## Prerequisites
