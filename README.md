@@ -256,6 +256,24 @@ Parse output → return to host
 
 Each agent runs in its own process with full access to whatever tools the underlying CLI provides — filesystem, shell, web search, code execution. Hive is just the bridge.
 
+## Security
+
+Hive spawns child processes, so security matters. Here's what it does:
+
+- **No shell injection** — Uses `spawn()` with argument arrays, never shell interpolation
+- **Path traversal protection** — `continuation_id` and role names are validated against strict alphanumeric patterns
+- **Environment filtering** — Sensitive env vars (`*_SECRET`, `*_TOKEN`, `AWS_*`, `GITHUB_TOKEN`, `NPM_TOKEN`) are stripped before passing to child processes
+- **Concurrency limits** — Max 5 simultaneous child processes to prevent resource exhaustion
+- **CWD validation** — The `cwd` parameter is validated to be an existing directory before spawning
+- **Config validation** — User configs are validated for required fields, sane timeout bounds (1s–2hr), and dangerous env vars (`LD_PRELOAD`, etc.) are blocked
+- **Timeout enforcement** — Every child process has a timeout with SIGTERM → SIGKILL escalation
+
+**Things to be aware of:**
+
+- **Custom clients can run any executable.** Files in `~/.hive/cli_clients/` define the `command` that gets spawned. Only add configs you trust.
+- **Built-in Claude configs use `bypassPermissions`.** This means spawned Claude agents can read/write/execute without human approval. Override in `~/.hive/cli_clients/` if you want stricter defaults.
+- **Agents inherit most of your environment.** CLI tools like Gemini and Claude need their API keys from the environment to function. Hive strips known secrets but passes the rest.
+
 ## Development
 
 ```bash

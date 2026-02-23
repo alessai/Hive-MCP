@@ -1,10 +1,43 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import type { ResolvedClient, SpawnResult, ProgressCallback } from "../types.js";
-import { MAX_OUTPUT_CHARS } from "../config/constants.js";
+import { MAX_OUTPUT_CHARS, MAX_CONCURRENT_AGENTS } from "../config/constants.js";
 import { log } from "../log.js";
 
 // Track active child processes for cleanup on server exit
 const activeChildren = new Set<ChildProcess>();
+
+// Concurrency limiter — prevents resource exhaustion from too many parallel agents
+let activeCount = 0;
+const waitQueue: (() => void)[] = [];
+
+function acquireSlot(): Promise<void> {
+  if (activeCount < MAX_CONCURRENT_AGENTS) {
+    activeCount++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    waitQueue.push(() => { activeCount++; resolve(); });
+  });
+}
+
+function releaseSlot(): void {
+  activeCount--;
+  const next = waitQueue.shift();
+  if (next) next();
+}
+
+// Environment variables that should never leak to child processes
+const SENSITIVE_ENV_PATTERNS = [
+  /^AWS_SECRET/,
+  /^AWS_SESSION_TOKEN$/,
+  /^GH_TOKEN$/,
+  /^GITHUB_TOKEN$/,
+  /_SECRET$/,
+  /_SECRET_KEY$/,
+  /^NPM_TOKEN$/,
+];
 
 function cleanupChildren() {
   for (const child of activeChildren) {
@@ -47,19 +80,36 @@ export class BaseCLIAgent {
 
   /** Run the CLI process */
   async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
+    // Validate cwd if provided
+    if (cwd) {
+      const resolvedCwd = path.resolve(cwd);
+      try {
+        const stat = fs.statSync(resolvedCwd);
+        if (!stat.isDirectory()) {
+          return { stdout: "", stderr: `cwd is not a directory: ${cwd}`, exitCode: 1, timedOut: false };
+        }
+      } catch {
+        return { stdout: "", stderr: `cwd does not exist: ${cwd}`, exitCode: 1, timedOut: false };
+      }
+      cwd = resolvedCwd;
+    }
+
     const args = this.buildArgs(systemPrompt, userPrompt);
     const stdinContent = this.buildStdin(systemPrompt, userPrompt);
-    // Strip env vars that block nested sessions or corrupt JSON output
-    const {
-      CLAUDECODE: _1,   // Prevents Claude-in-Claude nesting check
-      FORCE_COLOR: _2,  // Prevents ANSI escape codes in JSON output
-      NO_COLOR: _3,     // Let CLIs decide color based on TTY detection
-      ...cleanEnv
-    } = process.env;
+    // Strip env vars that block nested sessions, corrupt JSON output, or leak secrets
+    const cleanEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (key === "CLAUDECODE" || key === "FORCE_COLOR" || key === "NO_COLOR") continue;
+      if (SENSITIVE_ENV_PATTERNS.some(p => p.test(key))) continue;
+      if (value !== undefined) cleanEnv[key] = value;
+    }
     const env = { ...cleanEnv, ...this.client.env };
     const timeoutMs = this.client.timeout_seconds * 1000;
 
     log(`[${this.client.name}] Spawning: ${this.client.command} ${args.map(a => a.length > 80 ? a.slice(0, 80) + "..." : a).join(" ")}`);
+
+    // Wait for a concurrency slot
+    await acquireSlot();
 
     return new Promise<SpawnResult>((resolve) => {
       let stdout = "";
@@ -128,6 +178,7 @@ export class BaseCLIAgent {
         clearTimeout(timer);
         if (progressInterval) clearInterval(progressInterval);
         activeChildren.delete(child);
+        releaseSlot();
         log(`[${this.client.name}] Exited: code=${exitCode} timedOut=${timedOut} stdout=${stdout.length}bytes stderr=${stderr.length}bytes`);
         resolve({ stdout, stderr, exitCode, timedOut });
       };

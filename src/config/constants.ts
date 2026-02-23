@@ -15,3 +15,4 @@ export const DEFAULT_TIMEOUT_SECONDS = 300;
 export const MAX_OUTPUT_CHARS = 20_000;
 export const MAX_THREADS = 100;
 export const THREAD_TTL_MS = 30 * 60 * 1000; // 30 minutes
+export const MAX_CONCURRENT_AGENTS = 5;

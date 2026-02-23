@@ -18,8 +18,17 @@ async function ensureThreadsDir(): Promise<void> {
   }
 }
 
+const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+
 function getThreadPath(id: string): string {
-  return path.join(THREADS_DIR, `${id}.json`);
+  if (!SAFE_ID.test(id)) {
+    throw new Error(`Invalid continuation_id: must be alphanumeric, hyphens, or underscores`);
+  }
+  const resolved = path.resolve(THREADS_DIR, `${id}.json`);
+  if (!resolved.startsWith(THREADS_DIR + path.sep)) {
+    throw new Error(`Invalid continuation_id: path traversal detected`);
+  }
+  return resolved;
 }
 
 async function readThread(id: string): Promise<ConversationThread | undefined> {
