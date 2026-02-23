@@ -21,4 +21,10 @@ export const INTERNAL_DEFAULTS: Record<string, InternalDefaults> = {
     prompt_injection: "stdin",
     runner: "codex",
   },
+  opencode: {
+    parser: "opencode",
+    output_args: ["run", "--format", "json"],
+    prompt_injection: "stdin",
+    runner: "base",
+  },
 };

@@ -2,7 +2,7 @@
 
 **Why rely on one AI model when you can orchestrate them all?**
 
-Hive is an MCP server that lets any AI coding assistant — Claude Code, Cursor, Windsurf, or any MCP host — spawn and coordinate external AI CLIs as subagents. Delegate tasks to Gemini, Claude, Codex, or any custom CLI tool. Each agent runs with **full tool access** (filesystem, shell, web search), and results flow right back into your session.
+Hive is an MCP server that lets any AI coding assistant — Claude Code, Cursor, Windsurf, or any MCP host — spawn and coordinate external AI CLIs as subagents. Delegate tasks to Gemini, Claude, OpenCode, Codex, or any custom CLI tool. Each agent runs with **full tool access** (filesystem, shell, web search), and results flow right back into your session.
 
 Think of it as giving your AI assistant a team of other AI assistants it can call on whenever it needs a second opinion, a specialized skill, or just more hands on deck.
 
@@ -55,6 +55,7 @@ Install whichever CLIs you want to use as agents:
 |-------|-----|---------|
 | Gemini | `gemini` | See [Gemini CLI](https://github.com/google-gemini/gemini-cli) |
 | Claude | `claude` | See [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
+| OpenCode | `opencode` | See [OpenCode](https://github.com/nichochar/opencode) |
 | Codex | `codex` | See [Codex CLI](https://github.com/openai/codex) |
 
 You only need the ones you plan to use. Hive gives a clear error if a CLI isn't found.
@@ -144,7 +145,7 @@ Spawn a single CLI agent with a task.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `client` | string | yes | CLI client: `gemini`, `claude`, `codex`, `glm`, or custom |
+| `client` | string | yes | CLI client: `gemini`, `claude`, `opencode`, `codex`, `glm`, or custom |
 | `prompt` | string | yes | The task or question |
 | `role` | string | no | Role prompt (see [Roles](#roles)) |
 | `continuation_id` | string | no | Thread ID for multi-turn conversations |
@@ -193,6 +194,7 @@ All agents also get a capabilities preamble reminding them to use their tools (f
 | `gemini` | `gemini` | gemini-2.5-pro | 5 min |
 | `claude` | `claude` | default | 30 min |
 | `glm` | `claude` | opus | 30 min |
+| `opencode` | `opencode` | default | 5 min |
 | `codex` | `codex` | default | 10 min |
 
 ### Add your own agents
@@ -217,6 +219,7 @@ The `runner` field tells Hive how to communicate with the CLI:
 |--------|------------------|---------------|---------|
 | `gemini` | `-p` flag | JSON | Gemini-compatible CLIs |
 | `claude` | `--append-system-prompt` flag | JSON | Claude-compatible CLIs |
+| `opencode` | stdin | JSONL | OpenCode-compatible CLIs |
 | `codex` | stdin | JSONL | Codex-compatible CLIs |
 | base (default) | stdin | raw text | Any CLI that reads stdin and writes stdout |
 

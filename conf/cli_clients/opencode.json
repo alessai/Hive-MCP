@@ -1,0 +1,9 @@
+{
+  "name": "opencode",
+  "command": "opencode",
+  "runner": "opencode",
+  "additional_args": [],
+  "env": {},
+  "timeout_seconds": 300,
+  "roles": {}
+}
