@@ -1,0 +1,9 @@
+{
+  "name": "kilo",
+  "command": "kilocode",
+  "runner": "kilo",
+  "additional_args": [],
+  "env": {},
+  "timeout_seconds": 300,
+  "roles": {}
+}

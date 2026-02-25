@@ -27,4 +27,16 @@ export const INTERNAL_DEFAULTS: Record<string, InternalDefaults> = {
     prompt_injection: "stdin",
     runner: "base",
   },
+  qwen: {
+    parser: "claude",
+    output_args: ["-o", "json", "--approval-mode", "yolo"],
+    prompt_injection: "stdin",
+    runner: "base",
+  },
+  kilo: {
+    parser: "kilo",
+    output_args: ["--auto", "--json"],
+    prompt_injection: "stdin",
+    runner: "base",
+  },
 };
