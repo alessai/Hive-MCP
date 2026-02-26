@@ -3,6 +3,7 @@ import path from "node:path";
 import type { CLIClientConfig, ResolvedClient } from "../types.js";
 import { INTERNAL_DEFAULTS } from "./internal-defaults.js";
 import { CONF_DIR, USER_CONF_DIR, DEFAULT_TIMEOUT_SECONDS } from "./constants.js";
+import { isBinaryAvailable } from "../cli/detect.js";
 import { log } from "../log.js";
 
 const SAFE_NAME = /^[a-zA-Z0-9_-]+$/;
@@ -67,19 +68,44 @@ function resolve(config: CLIClientConfig): ResolvedClient | null {
   };
 }
 
-export function loadAllClients(): void {
+export function loadAllClients(detectBinaries = true): void {
   clientCache.clear();
 
-  // Load built-in configs first
+  const detected: string[] = [];
+  const skipped: string[] = [];
+
+  // Load built-in configs — skip if binary not in PATH (when detection enabled)
   for (const config of loadJsonConfigs(CONF_DIR)) {
     const resolved = resolve(config);
-    if (resolved) clientCache.set(resolved.name, resolved);
+    if (!resolved) continue;
+
+    if (detectBinaries && !isBinaryAvailable(resolved.command)) {
+      skipped.push(resolved.name);
+      continue;
+    }
+
+    clientCache.set(resolved.name, resolved);
+    detected.push(resolved.name);
   }
 
-  // User overrides take precedence
+  // User configs always load (user explicitly created them), but warn if binary missing
   for (const config of loadJsonConfigs(USER_CONF_DIR)) {
     const resolved = resolve(config);
-    if (resolved) clientCache.set(resolved.name, resolved);
+    if (!resolved) continue;
+
+    if (detectBinaries && !isBinaryAvailable(resolved.command)) {
+      log(`Warning: User config "${resolved.name}" — command "${resolved.command}" not found in PATH`);
+    }
+
+    clientCache.set(resolved.name, resolved);
+    if (!detected.includes(resolved.name)) detected.push(resolved.name);
+  }
+
+  if (detectBinaries) {
+    log(`Detected: ${detected.join(", ") || "none"} (${detected.length} clients)`);
+    if (skipped.length > 0) {
+      log(`Skipped (not in PATH): ${skipped.join(", ")}`);
+    }
   }
 }
 

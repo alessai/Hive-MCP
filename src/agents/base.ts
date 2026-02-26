@@ -9,6 +9,7 @@ import { log } from "../log.js";
 const activeChildren = new Set<ChildProcess>();
 
 // Concurrency limiter — prevents resource exhaustion from too many parallel agents
+const MAX_QUEUE = 20;
 let activeCount = 0;
 const waitQueue: (() => void)[] = [];
 
@@ -16,6 +17,9 @@ function acquireSlot(): Promise<void> {
   if (activeCount < MAX_CONCURRENT_AGENTS) {
     activeCount++;
     return Promise.resolve();
+  }
+  if (waitQueue.length >= MAX_QUEUE) {
+    return Promise.reject(new Error("Too many queued agent requests. Try again later."));
   }
   return new Promise<void>((resolve) => {
     waitQueue.push(() => { activeCount++; resolve(); });
@@ -34,8 +38,17 @@ const SENSITIVE_ENV_PATTERNS = [
   /^AWS_SESSION_TOKEN$/,
   /^GH_TOKEN$/,
   /^GITHUB_TOKEN$/,
+  /^GITLAB_TOKEN$/,
+  /^BITBUCKET_TOKEN$/,
+  /^SLACK_TOKEN$/,
+  /^DOCKER_TOKEN$/,
   /_SECRET$/,
   /_SECRET_KEY$/,
+  /_TOKEN$/,
+  /_PASSWORD$/,
+  /_CREDENTIAL/,
+  /PRIVATE_KEY/,
+  /^DATABASE_URL$/,
   /^NPM_TOKEN$/,
 ];
 
@@ -139,6 +152,7 @@ export class BaseCLIAgent {
         ).catch(() => {}); // fire-and-forget, don't crash on notification failure
       }, 10_000) : undefined;
 
+      let killTimer: ReturnType<typeof setTimeout> | undefined;
       const timer = setTimeout(() => {
         timedOut = true;
         log(`[${this.client.name}] Timeout after ${this.client.timeout_seconds}s — sending SIGTERM`);
@@ -147,7 +161,7 @@ export class BaseCLIAgent {
           if (child.pid) process.kill(-child.pid, "SIGTERM");
         } catch { /* already dead */ }
         // Force kill after 3s grace period
-        setTimeout(() => {
+        killTimer = setTimeout(() => {
           try {
             if (child.pid) process.kill(-child.pid, "SIGKILL");
           } catch { /* already dead */ }
@@ -176,6 +190,7 @@ export class BaseCLIAgent {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (killTimer) clearTimeout(killTimer);
         if (progressInterval) clearInterval(progressInterval);
         activeChildren.delete(child);
         releaseSlot();

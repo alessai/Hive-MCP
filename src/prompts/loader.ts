@@ -48,5 +48,5 @@ export function loadSystemPrompt(role: string): string | null {
 export function loadPrompt(role: string, userPrompt: string): string {
   const template = resolveTemplate(role);
   if (!template) return userPrompt;
-  return template.replace(/\{\{PROMPT\}\}/g, userPrompt);
+  return template.replace(/\{\{PROMPT\}\}/g, () => userPrompt);
 }

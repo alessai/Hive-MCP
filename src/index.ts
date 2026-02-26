@@ -6,14 +6,45 @@ import { handleHive } from "./tools/hive.js";
 import { handleConsensus } from "./tools/hive-consensus.js";
 import { listClients, loadAllClients } from "./config/registry.js";
 import { createProgressCallback } from "./progress.js";
+import { cmdList, cmdAdd, cmdRemove, cmdHelp } from "./cli/commands.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PKG_VERSION: string = JSON.parse(
+  readFileSync(resolve(__dirname, "..", "package.json"), "utf-8")
+).version;
+
+// ─── CLI subcommands ─────────────────────────────────────────
+const subcommand = process.argv[2];
+
+if (subcommand === "list") {
+  cmdList();
+  process.exit(0);
+} else if (subcommand === "add") {
+  cmdAdd(process.argv.slice(3));
+  process.exit(0);
+} else if (subcommand === "remove") {
+  cmdRemove(process.argv.slice(3));
+  process.exit(0);
+} else if (subcommand === "help" || subcommand === "--help" || subcommand === "-h") {
+  cmdHelp();
+  process.exit(0);
+}
+
+// ─── MCP server mode (default) ──────────────────────────────
 
 const server = new McpServer({
   name: "hive",
-  version: "1.0.0",
+  version: PKG_VERSION,
 });
 
-// Load all CLI client configs on startup
-loadAllClients();
+// Load clients with binary auto-detection
+loadAllClients(true);
+
+const available = listClients();
 
 // --- hivesingle tool ---
 server.tool(
@@ -22,7 +53,7 @@ server.tool(
   "Use this to delegate tasks to a specific external AI CLI that has full tool access (file system, web search, etc).",
   {
     client: z.string().describe(
-      `CLI client to use. Available: ${listClients().join(", ")}`
+      `CLI client to use. Available: ${available.join(", ")}`
     ),
     prompt: z.string().describe("The task or question to send to the CLI agent"),
     role: z.string().optional().describe(
@@ -70,14 +101,15 @@ server.tool(
   }
 );
 
-// --- hive tool (consensus, defaults to gemini + glm) ---
+// --- hive tool (consensus) — only register when 2+ clients available ---
+if (available.length >= 2) {
 server.tool(
   "hive",
   "Spawn 2+ CLI agents in parallel with the same prompt, collect all responses. " +
-  "Defaults to gemini + glm. Use this to delegate tasks to external AI CLIs that have full tool access.",
+  `Defaults to first 2 available clients. Use this to delegate tasks to external AI CLIs that have full tool access.`,
   {
-    clients: z.array(z.string()).min(2).default(["gemini", "glm"]).describe(
-      `CLI clients to query in parallel. Defaults to ["gemini", "glm"]. Available: ${listClients().join(", ")}`
+    clients: z.array(z.string()).min(2).default(available.slice(0, 2)).describe(
+      `CLI clients to query in parallel. Available: ${available.join(", ")}`
     ),
     prompt: z.string().describe("The task or question to send to all CLI agents"),
     role: z.string().optional().describe(
@@ -118,6 +150,7 @@ server.tool(
     }
   }
 );
+} // end if (available.length >= 2)
 
 // Start server
 async function main() {
