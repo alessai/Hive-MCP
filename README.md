@@ -4,6 +4,8 @@
 
 Hive is an MCP server that lets any AI coding assistant — Claude Code, Cursor, Windsurf, or any MCP host — spawn and coordinate external AI CLIs as subagents. Delegate tasks to Gemini, Claude, Qwen, Kilo Code, OpenCode, Codex, or any custom CLI tool. Each agent runs with **full tool access** (filesystem, shell, web search), and results flow right back into your session.
 
+Hive **auto-detects** which CLIs you have installed — no configuration needed. Just install and go.
+
 Think of it as giving your AI assistant a team of other AI assistants it can call on whenever it needs a second opinion, a specialized skill, or just more hands on deck.
 
 ## Why Hive?
@@ -60,7 +62,7 @@ Install whichever CLIs you want to use as agents:
 | OpenCode | `opencode` | See [OpenCode](https://github.com/nichochar/opencode) |
 | Codex | `codex` | See [Codex CLI](https://github.com/openai/codex) |
 
-You only need the ones you plan to use. Hive gives a clear error if a CLI isn't found.
+You only need the ones you plan to use. Hive **auto-detects** which CLIs are in your PATH at startup and only advertises the ones it finds. No configuration needed — install a CLI and it just works.
 
 ## Examples
 
@@ -155,11 +157,11 @@ Spawn a single CLI agent with a task.
 
 ### `hive`
 
-Spawn 2+ CLI agents in parallel with the same prompt. Defaults to `gemini` + `glm`.
+Spawn 2+ CLI agents in parallel with the same prompt. Defaults to the first 2 detected clients. Only available when 2+ CLIs are installed.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `clients` | string[] | no | CLI clients to query (default: `["gemini", "glm"]`) |
+| `clients` | string[] | no | CLI clients to query (defaults to first 2 detected) |
 | `prompt` | string | yes | The task or question |
 | `role` | string | no | Role prompt (see [Roles](#roles)) |
 | `cwd` | string | no | Working directory |
@@ -187,6 +189,64 @@ Each role injects a tailored system prompt that shapes how the agent approaches 
 
 All agents also get a capabilities preamble reminding them to use their tools (filesystem, shell, web search) when needed.
 
+## CLI Management
+
+Hive includes built-in commands for managing your CLI client configs. No manual JSON editing required.
+
+### See what's available
+
+```bash
+hive-mcp list
+```
+
+```
+  Status  Name            Command         Source
+  ─────── ─────────────── ─────────────── ──────────────────────────
+  ✓     claude          claude          built-in
+  ✓     gemini          gemini          built-in
+  ✓     glm             claude          built-in
+  ✗     codex           codex           built-in
+          └─ Install: npm i -g @openai/codex
+
+  3/4 clients available
+```
+
+### Add custom CLI configs
+
+Clone an existing client with extra args — perfect for model variants:
+
+```bash
+# Claude with Opus model and custom settings
+hive-mcp add claude-zai --from claude --args "--model opus --settings ~/.claude-zai/settings.json"
+
+# Gemini with Flash model and shorter timeout
+hive-mcp add gemini-fast --from gemini --args "-m gemini-2.0-flash" --timeout 60
+```
+
+Or create a completely new client:
+
+```bash
+hive-mcp add my-tool --command /usr/local/bin/mytool --runner base --timeout 120
+```
+
+### Remove custom configs
+
+```bash
+hive-mcp remove claude-zai
+```
+
+Only user configs can be removed. Built-in configs are protected.
+
+### All commands
+
+| Command | Description |
+|---------|-------------|
+| `hive-mcp` | Start MCP server (default) |
+| `hive-mcp list` | Show all clients with availability status |
+| `hive-mcp add <name>` | Add a custom CLI config |
+| `hive-mcp remove <name>` | Remove a user CLI config |
+| `hive-mcp help` | Show help |
+
 ## Configuration
 
 ### Built-in clients
@@ -203,7 +263,13 @@ All agents also get a capabilities preamble reminding them to use their tools (f
 
 ### Add your own agents
 
-Drop a JSON file in `~/.hive/cli_clients/` to add any CLI tool as an agent:
+The easiest way is with the CLI:
+
+```bash
+hive-mcp add my-agent --from gemini --args "--flag value" --timeout 300
+```
+
+Or drop a JSON file in `~/.hive/cli_clients/` manually:
 
 ```json
 {
@@ -269,9 +335,10 @@ Each agent runs in its own process with full access to whatever tools the underl
 
 Hive spawns child processes, so security matters. Here's what it does:
 
+- **Auto-detection** — Only CLIs actually found in PATH are registered; missing binaries are silently skipped
 - **No shell injection** — Uses `spawn()` with argument arrays, never shell interpolation
 - **Path traversal protection** — `continuation_id` and role names are validated against strict alphanumeric patterns
-- **Environment filtering** — Sensitive env vars (`*_SECRET`, `*_TOKEN`, `AWS_*`, `GITHUB_TOKEN`, `NPM_TOKEN`) are stripped before passing to child processes
+- **Environment filtering** — Sensitive env vars (`*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `PRIVATE_KEY`, `DATABASE_URL`, `GITHUB_TOKEN`, etc.) are stripped before passing to child processes
 - **Concurrency limits** — Max 5 simultaneous child processes to prevent resource exhaustion
 - **CWD validation** — The `cwd` parameter is validated to be an existing directory before spawning
 - **Config validation** — User configs are validated for required fields, sane timeout bounds (1s–2hr), and dangerous env vars (`LD_PRELOAD`, etc.) are blocked
@@ -288,6 +355,7 @@ Hive spawns child processes, so security matters. Here's what it does:
 ```bash
 npm run dev     # Watch mode
 npm run build   # One-time build
+npm test        # Run 203 tests
 npm start       # Run the server
 ```
 
