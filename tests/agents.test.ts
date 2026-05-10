@@ -7,6 +7,7 @@ function makeClient(overrides: Partial<ResolvedClient> = {}): ResolvedClient {
   return {
     name: "test",
     command: "echo",
+    config_runner: "base",
     runner: "base",
     parser: "raw",
     output_args: [],
@@ -159,6 +160,21 @@ describe("BaseCLIAgent", () => {
       const agent = new BaseCLIAgent(client);
       const result = await agent.run(undefined, "");
       expect(result.timedOut).toBe(true);
+    }, 10_000);
+
+    it("aborts slow processes when the request signal is cancelled", async () => {
+      const client = makeClient({
+        command: "sleep",
+        output_args: ["30"],
+        timeout_seconds: 10,
+      });
+      const agent = new BaseCLIAgent(client);
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 100);
+
+      const result = await agent.run(undefined, "", undefined, undefined, controller.signal);
+      expect(result.aborted).toBe(true);
+      expect(result.timedOut).toBe(false);
     }, 10_000);
 
     it("handles concurrent spawns within limit", async () => {

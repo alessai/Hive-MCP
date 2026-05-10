@@ -19,8 +19,8 @@ export class CodexAgent extends BaseCLIAgent {
   }
 
   /** Codex JSONL output can have broken lines — stderr is useful for diagnostics */
-  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
-    const result = await super.run(systemPrompt, userPrompt, cwd, onProgress);
+  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback, signal?: AbortSignal): Promise<SpawnResult> {
+    const result = await super.run(systemPrompt, userPrompt, cwd, onProgress, signal);
     return result;
   }
 }

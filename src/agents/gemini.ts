@@ -52,8 +52,8 @@ export class GeminiAgent extends BaseCLIAgent {
   }
 
   /** Filter known Gemini stderr noise */
-  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
-    const result = await super.run(systemPrompt, userPrompt, cwd, onProgress);
+  override async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback, signal?: AbortSignal): Promise<SpawnResult> {
+    const result = await super.run(systemPrompt, userPrompt, cwd, onProgress, signal);
 
     if (result.stderr) {
       result.stderr = result.stderr

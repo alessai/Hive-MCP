@@ -10,8 +10,11 @@ export const CONF_DIR = path.join(PROJECT_ROOT, "conf", "cli_clients");
 export const PROMPTS_DIR = path.join(PROJECT_ROOT, "prompts");
 export const USER_CONF_DIR = path.join(os.homedir(), ".hive", "cli_clients");
 export const THREADS_DIR = path.join(os.homedir(), ".hive", "threads");
+export const LOG_DIR = path.join(os.homedir(), ".hive", "logs");
+export const LOG_FILE = path.join(LOG_DIR, "hive-mcp.log");
 
 export const DEFAULT_TIMEOUT_SECONDS = 300;
+export const MAX_TIMEOUT_SECONDS = 7200; // 2 hours
 export const MAX_OUTPUT_CHARS = 20_000;
 export const MAX_THREADS = 100;
 export const THREAD_TTL_MS = 30 * 60 * 1000; // 30 minutes

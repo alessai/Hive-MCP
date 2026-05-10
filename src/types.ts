@@ -24,6 +24,8 @@ export interface InternalDefaults {
 export interface ResolvedClient {
   name: string;
   command: string;
+  /** Original config runner key; may differ from runner after defaults resolve to base. */
+  config_runner: string;
   runner: string;
   parser: string;
   output_args: string[];
@@ -41,6 +43,7 @@ export interface AgentRequest {
   prompt: string;
   continuation_id?: string;
   cwd?: string;
+  timeout_seconds?: number;
 }
 
 export interface AgentResponse {
@@ -58,6 +61,7 @@ export interface ConsensusRequest {
   role?: string;
   prompt: string;
   cwd?: string;
+  timeout_seconds?: number;
 }
 
 export interface ConsensusResponse {
@@ -86,6 +90,7 @@ export interface SpawnResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  aborted?: boolean;
 }
 
 export type ProgressCallback = (message: string, progress: number, total: number) => Promise<void>;

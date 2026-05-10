@@ -1,7 +1,7 @@
 import type { ConsensusRequest, ConsensusResponse, AgentRequest, ProgressCallback } from "../types.js";
 import { handleHive } from "./hive.js";
 
-export async function handleConsensus(request: ConsensusRequest, onProgress?: ProgressCallback): Promise<ConsensusResponse> {
+export async function handleConsensus(request: ConsensusRequest, onProgress?: ProgressCallback, signal?: AbortSignal): Promise<ConsensusResponse> {
   const role = request.role ?? "default";
   const total = request.clients.length;
   let completed = 0;
@@ -13,8 +13,16 @@ export async function handleConsensus(request: ConsensusRequest, onProgress?: Pr
       role,
       prompt: request.prompt,
       cwd: request.cwd,
+      timeout_seconds: request.timeout_seconds,
     };
-    return handleHive(agentRequest).then(result => {
+    const agentProgress: ProgressCallback | undefined = onProgress
+      ? (message, progress, total) => onProgress(
+        `[${client}] ${message}`,
+        completed + Math.min(progress / Math.max(total, 1), 1),
+        total,
+      )
+      : undefined;
+    return handleHive(agentRequest, agentProgress, signal).then(result => {
       completed++;
       onProgress?.(`Agent ${completed}/${total} (${client}) complete`, completed, total)?.catch(() => {});
       return result;

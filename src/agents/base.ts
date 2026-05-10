@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { ResolvedClient, SpawnResult, ProgressCallback } from "../types.js";
@@ -11,9 +11,24 @@ const activeChildren = new Set<ChildProcess>();
 // Concurrency limiter — prevents resource exhaustion from too many parallel agents
 const MAX_QUEUE = 20;
 let activeCount = 0;
-const waitQueue: (() => void)[] = [];
+type QueueEntry = {
+  run: () => void;
+  reject: (err: Error) => void;
+  abort?: () => void;
+};
 
-function acquireSlot(): Promise<void> {
+const waitQueue: QueueEntry[] = [];
+
+function abortError(): Error {
+  const err = new Error("Agent request aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+function acquireSlot(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(abortError());
+  }
   if (activeCount < MAX_CONCURRENT_AGENTS) {
     activeCount++;
     return Promise.resolve();
@@ -21,15 +36,45 @@ function acquireSlot(): Promise<void> {
   if (waitQueue.length >= MAX_QUEUE) {
     return Promise.reject(new Error("Too many queued agent requests. Try again later."));
   }
-  return new Promise<void>((resolve) => {
-    waitQueue.push(() => { activeCount++; resolve(); });
+  return new Promise<void>((resolve, reject) => {
+    const entry: QueueEntry = {
+      reject,
+      run: () => {
+        if (entry.abort && signal) {
+          signal.removeEventListener("abort", entry.abort);
+        }
+        if (signal?.aborted) {
+          reject(abortError());
+          return;
+        }
+        activeCount++;
+        resolve();
+      },
+    };
+
+    if (signal) {
+      entry.abort = () => {
+        const index = waitQueue.indexOf(entry);
+        if (index >= 0) waitQueue.splice(index, 1);
+        reject(abortError());
+      };
+      signal.addEventListener("abort", entry.abort, { once: true });
+    }
+
+    waitQueue.push(entry);
   });
 }
 
 function releaseSlot(): void {
-  activeCount--;
-  const next = waitQueue.shift();
-  if (next) next();
+  activeCount = Math.max(0, activeCount - 1);
+  while (waitQueue.length > 0 && activeCount < MAX_CONCURRENT_AGENTS) {
+    const before = activeCount;
+    const next = waitQueue.shift();
+    if (next) next.run();
+    // If the queued entry was already aborted, it will not consume the slot.
+    // Keep draining until a live request starts or the queue is empty.
+    if (activeCount > before) break;
+  }
 }
 
 // Environment variables that should never leak to child processes
@@ -59,6 +104,27 @@ function cleanupChildren() {
     } catch { /* already dead */ }
   }
   activeChildren.clear();
+}
+
+function redactArgs(args: string[], promptFlag?: string): string[] {
+  const valueFlags = new Set(["-p", "--prompt", "--append-system-prompt", "--password"]);
+  const secretFlag = /(?:token|secret|password|api[-_]?key|credential|authorization)/i;
+  if (promptFlag) valueFlags.add(promptFlag);
+
+  let redactNext = false;
+  return args.map((arg) => {
+    if (redactNext) {
+      redactNext = false;
+      return "[REDACTED]";
+    }
+    if (valueFlags.has(arg) || secretFlag.test(arg)) {
+      redactNext = true;
+      const eq = arg.indexOf("=");
+      if (eq > 0) return `${arg.slice(0, eq + 1)}[REDACTED]`;
+      return arg;
+    }
+    return arg.length > 120 ? `${arg.slice(0, 120)}...` : arg;
+  });
 }
 
 // Clean up children on exit. Use "exit" event only — signal handlers
@@ -92,7 +158,13 @@ export class BaseCLIAgent {
   }
 
   /** Run the CLI process */
-  async run(systemPrompt: string | undefined, userPrompt: string, cwd?: string, onProgress?: ProgressCallback): Promise<SpawnResult> {
+  async run(
+    systemPrompt: string | undefined,
+    userPrompt: string,
+    cwd?: string,
+    onProgress?: ProgressCallback,
+    signal?: AbortSignal,
+  ): Promise<SpawnResult> {
     // Validate cwd if provided
     if (cwd) {
       const resolvedCwd = path.resolve(cwd);
@@ -119,24 +191,46 @@ export class BaseCLIAgent {
     const env = { ...cleanEnv, ...this.client.env };
     const timeoutMs = this.client.timeout_seconds * 1000;
 
-    log(`[${this.client.name}] Spawning: ${this.client.command} ${args.map(a => a.length > 80 ? a.slice(0, 80) + "..." : a).join(" ")}`);
+    log(`[${this.client.name}] Spawning CLI`, "INFO", {
+      command: this.client.command,
+      args: redactArgs(args, this.client.prompt_flag),
+      cwd: cwd ?? process.cwd(),
+      timeout_seconds: this.client.timeout_seconds,
+    });
 
-    // Wait for a concurrency slot
-    await acquireSlot();
+    // Wait for a concurrency slot. If the MCP request is cancelled while queued,
+    // drop it before it can consume capacity or spawn a child process.
+    try {
+      await acquireSlot(signal);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`[${this.client.name}] Aborted before spawning`, "WARN", { error: msg });
+      return { stdout: "", stderr: msg, exitCode: null, timedOut: false, aborted: true };
+    }
 
     return new Promise<SpawnResult>((resolve) => {
       let stdout = "";
       let stderr = "";
       let timedOut = false;
+      let aborted = false;
       let settled = false;
       const spawnStart = Date.now();
 
-      const child = spawn(this.client.command, args, {
-        cwd: cwd ?? process.cwd(),
-        env,
-        stdio: ["pipe", "pipe", "pipe"],
-        detached: true, // Create process group so we can kill the entire tree
-      });
+      let child: ChildProcessWithoutNullStreams;
+      try {
+        child = spawn(this.client.command, args, {
+          cwd: cwd ?? process.cwd(),
+          env,
+          stdio: ["pipe", "pipe", "pipe"],
+          detached: true, // Create process group so we can kill the entire tree
+        });
+      } catch (err) {
+        releaseSlot();
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`[${this.client.name}] Spawn threw before child process was created`, "ERROR", { error: msg });
+        resolve({ stdout: "", stderr: `Spawn error: ${msg}`, exitCode: 1, timedOut: false });
+        return;
+      }
 
       activeChildren.add(child);
 
@@ -153,20 +247,57 @@ export class BaseCLIAgent {
       }, 10_000) : undefined;
 
       let killTimer: ReturnType<typeof setTimeout> | undefined;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        log(`[${this.client.name}] Timeout after ${this.client.timeout_seconds}s — sending SIGTERM`);
+      let hardResolveTimer: ReturnType<typeof setTimeout> | undefined;
+      let terminationStarted = false;
+      const terminateProcessGroup = (reason: "timeout" | "abort") => {
+        if (settled) return;
+        if (terminationStarted) {
+          if (reason === "abort") aborted = true;
+          return;
+        }
+        terminationStarted = true;
+        if (reason === "timeout") {
+          timedOut = true;
+          log(`[${this.client.name}] Timeout after ${this.client.timeout_seconds}s — sending SIGTERM`, "WARN", {
+            stdout_bytes: stdout.length,
+            stderr_bytes: stderr.length,
+          });
+        } else {
+          aborted = true;
+          log(`[${this.client.name}] Request aborted — sending SIGTERM`, "WARN", {
+            stdout_bytes: stdout.length,
+            stderr_bytes: stderr.length,
+          });
+        }
+
         // Kill the entire process group (child + its subprocesses)
         try {
           if (child.pid) process.kill(-child.pid, "SIGTERM");
         } catch { /* already dead */ }
         // Force kill after 3s grace period
         killTimer = setTimeout(() => {
+          log(`[${this.client.name}] Termination grace period elapsed — sending SIGKILL`, "WARN", { reason });
           try {
             if (child.pid) process.kill(-child.pid, "SIGKILL");
           } catch { /* already dead */ }
+          // Very rarely, a child can fail to emit close after forced termination.
+          // Resolve anyway so one stuck process does not consume a slot forever.
+          hardResolveTimer = setTimeout(() => finish(null), 5000);
         }, 3000);
+      };
+
+      const timer = setTimeout(() => {
+        terminateProcessGroup("timeout");
       }, timeoutMs);
+
+      const onAbort = () => terminateProcessGroup("abort");
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      }
 
       child.stdout.on("data", (chunk: Buffer) => {
         // Raw buffer needs to be large enough to capture verbose JSON event streams
@@ -191,11 +322,19 @@ export class BaseCLIAgent {
         settled = true;
         clearTimeout(timer);
         if (killTimer) clearTimeout(killTimer);
+        if (hardResolveTimer) clearTimeout(hardResolveTimer);
         if (progressInterval) clearInterval(progressInterval);
+        if (signal) signal.removeEventListener("abort", onAbort);
         activeChildren.delete(child);
         releaseSlot();
-        log(`[${this.client.name}] Exited: code=${exitCode} timedOut=${timedOut} stdout=${stdout.length}bytes stderr=${stderr.length}bytes`);
-        resolve({ stdout, stderr, exitCode, timedOut });
+        log(`[${this.client.name}] Exited`, timedOut || aborted || exitCode !== 0 ? "WARN" : "INFO", {
+          exit_code: exitCode,
+          timed_out: timedOut,
+          aborted,
+          stdout_bytes: stdout.length,
+          stderr_bytes: stderr.length,
+        });
+        resolve({ stdout, stderr, exitCode, timedOut, aborted });
       };
 
       child.on("close", (code) => finish(code));
@@ -203,7 +342,7 @@ export class BaseCLIAgent {
         const msg = (err as NodeJS.ErrnoException).code === "ENOENT"
           ? `CLI "${this.client.command}" not found. Is it installed and in PATH?`
           : `Spawn error: ${err.message}`;
-        log(`[${this.client.name}] Error: ${msg}`);
+        log(`[${this.client.name}] Error: ${msg}`, "ERROR");
         stderr += `\n${msg}`;
         finish(1);
       });

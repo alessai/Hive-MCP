@@ -1,4 +1,4 @@
-import { Parser } from "./base.js";
+import { Parser, ParserError } from "./base.js";
 
 /**
  * OpenCode `run --format json` output: JSONL stream
@@ -26,14 +26,33 @@ export class OpenCodeParser implements Parser {
       try {
         const obj = JSON.parse(stripped);
 
+        if (obj?.type === "error") {
+          const message = obj?.message ?? obj?.error?.message ?? obj?.error ?? "Unknown OpenCode error";
+          throw new ParserError(`OpenCode error: ${message}`, "opencode", trimmed);
+        }
+
         if (
           obj?.type === "text" &&
           typeof obj?.part?.text === "string"
         ) {
           texts.push(obj.part.text);
         }
-      } catch {
-        // Skip unparseable lines
+
+        // Some OpenCode builds emit message content blocks instead of text events.
+        const content = obj?.message?.content ?? obj?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block?.type === "text" && typeof block?.text === "string") {
+              texts.push(block.text);
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof ParserError) throw err;
+        // Skip unparseable lines, but preserve explicit parser/model errors.
+        if (line.includes('"type":"error"') || line.includes('"type": "error"')) {
+          throw new ParserError("OpenCode error event could not be parsed", "opencode", trimmed);
+        }
       }
     }
 

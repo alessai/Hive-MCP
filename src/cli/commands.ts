@@ -3,13 +3,15 @@ import path from "node:path";
 import { USER_CONF_DIR, CONF_DIR } from "../config/constants.js";
 import { loadAllClients, getClient, listClients } from "../config/registry.js";
 import { findBinary } from "./detect.js";
+import { getLogFilePath } from "../log.js";
+import { listOpenCodeModels } from "../opencode/models.js";
 
 // Known install hints for built-in CLIs
 const INSTALL_HINTS: Record<string, string> = {
-  gemini: "npm i -g @anthropic-ai/gemini-cli   — https://github.com/google-gemini/gemini-cli",
+  gemini: "npm i -g @google/gemini-cli      — https://github.com/google-gemini/gemini-cli",
   claude: "npm i -g @anthropic-ai/claude-code  — https://docs.anthropic.com/claude-code",
   codex: "npm i -g @openai/codex              — https://github.com/openai/codex",
-  opencode: "go install github.com/nicholasgriffintn/opencode@latest",
+  opencode: "npm i -g opencode-ai              — https://opencode.ai/docs/cli/",
   qwen: "npm i -g qwen-code                  — https://github.com/QwenLM/qwen-code",
   kilocode: "npm i -g kilocode                   — https://github.com/kilocode/kilocode",
 };
@@ -20,7 +22,7 @@ function ensureUserDir(): void {
 
 /** hive-mcp list — show all clients with availability status */
 export function cmdList(): void {
-  loadAllClients();
+  loadAllClients(false);
   const names = listClients();
 
   if (names.length === 0) {
@@ -38,7 +40,10 @@ export function cmdList(): void {
     const status = binaryPath ? "  ✓" : "  ✗";
     const location = binaryPath ?? "not in PATH";
     const isUser = fs.existsSync(path.join(USER_CONF_DIR, `${name}.json`));
-    const source = isUser ? "~/.hive/cli_clients/" : "built-in";
+    const hasBuiltin = fs.existsSync(path.join(CONF_DIR, `${name}.json`));
+    const source = isUser
+      ? hasBuiltin ? "~/.hive/cli_clients/ (overrides built-in)" : "~/.hive/cli_clients/"
+      : "built-in";
 
     const nameCol = name.padEnd(16);
     const cmdCol = client.command.padEnd(16);
@@ -53,6 +58,12 @@ export function cmdList(): void {
 
   const available = names.filter(n => findBinary(getClient(n)!.command));
   console.log(`\n  ${available.length}/${names.length} clients available\n`);
+
+  if (findBinary("opencode")) {
+    console.log("  OpenCode model clients: use opencode:<provider/model>");
+    console.log("  Example: opencode:openai/gpt-5.5");
+    console.log("  Run `hive-mcp models` to list OpenCode models.\n");
+  }
 }
 
 /** hive-mcp add <name> — create a custom CLI config */
@@ -76,7 +87,9 @@ export function cmdAdd(args: string[]): void {
   const timeout = flags["timeout"];
   const runner = flags["runner"];
 
-  loadAllClients();
+  // Load normal configs only. `getClient()` can still resolve opencode:<provider/model>
+  // dynamically, and avoiding full model discovery keeps add/remove commands fast.
+  loadAllClients(true, true, false);
 
   let config: any;
 
@@ -91,7 +104,7 @@ export function cmdAdd(args: string[]): void {
     config = {
       name,
       command: command ?? source.command,
-      runner: runner ?? source.runner,
+      runner: runner ?? source.config_runner ?? source.runner,
       additional_args: [...source.additional_args],
       env: { ...source.env },
       timeout_seconds: timeout ? parseInt(timeout, 10) : source.timeout_seconds,
@@ -176,6 +189,44 @@ export function cmdRemove(args: string[]): void {
   console.log(`\n  ✓ Removed: ${configPath}\n`);
 }
 
+/** hive-mcp logs — show log file path or recent log lines */
+export function cmdLogs(args: string[]): void {
+  const logPath = getLogFilePath();
+  if (args.includes("--path")) {
+    console.log(logPath);
+    return;
+  }
+
+  const tailIdx = args.indexOf("--tail");
+  const tail = tailIdx >= 0 && args[tailIdx + 1]
+    ? Math.max(1, parseInt(args[tailIdx + 1], 10) || 80)
+    : 80;
+
+  console.log(`Hive MCP log: ${logPath}\n`);
+  if (!fs.existsSync(logPath)) {
+    console.log("No log file exists yet. Start the MCP server or run a tool call first.");
+    return;
+  }
+
+  const lines = fs.readFileSync(logPath, "utf-8").split("\n").filter(Boolean);
+  console.log(lines.slice(-tail).join("\n"));
+}
+
+/** hive-mcp models — list OpenCode models that can be addressed as opencode:<provider/model> */
+export function cmdModels(args: string[]): void {
+  const result = listOpenCodeModels(args);
+  if (!result.available) {
+    console.error(`Error listing OpenCode models: ${result.error ?? "unknown error"}`);
+    process.exit(1);
+  }
+
+  console.log("\nOpenCode models available to Hive:\n");
+  for (const client of result.clients) {
+    console.log(`  ${client}`);
+  }
+  console.log("\nUse any value above as an entry in `hive.clients`.\n");
+}
+
 /** Print usage help */
 export function cmdHelp(): void {
   console.log(`
@@ -184,6 +235,8 @@ Hive MCP — Multi-Agent CLI Orchestrator
 Usage:
   hive-mcp                   Start MCP server (default)
   hive-mcp list              Show all CLI clients and their availability
+  hive-mcp models            Show OpenCode models as Hive client names
+  hive-mcp logs [--tail N]   Show recent Hive MCP logs
   hive-mcp add <name> ...    Add a custom CLI client config
   hive-mcp remove <name>     Remove a user CLI client config
   hive-mcp help              Show this help
@@ -197,6 +250,9 @@ Add examples:
 
   # Create a new client from scratch
   hive-mcp add my-tool --command /usr/local/bin/mytool --runner base --timeout 120
+
+  # Use any OpenCode model directly from MCP calls
+  client: "opencode:openai/gpt-5.5"
 
 Configs are saved to: ~/.hive/cli_clients/
 `);

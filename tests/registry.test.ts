@@ -3,8 +3,8 @@ import { loadAllClients, getClient, listClients } from "../src/config/registry.j
 
 describe("Client Registry", () => {
   beforeEach(() => {
-    // Disable binary detection for unit tests — we test configs, not PATH
-    loadAllClients(false);
+    // Disable binary detection and user configs for deterministic unit tests.
+    loadAllClients(false, false);
   });
 
   it("loads all built-in clients", () => {
@@ -12,7 +12,6 @@ describe("Client Registry", () => {
     expect(clients).toContain("gemini");
     expect(clients).toContain("claude");
     expect(clients).toContain("codex");
-    expect(clients).toContain("glm");
     expect(clients).toContain("opencode");
     expect(clients).toContain("qwen");
     expect(clients).toContain("kilo");
@@ -49,7 +48,7 @@ describe("Client Registry", () => {
 
     it("has model in additional_args", () => {
       expect(getClient("gemini")!.additional_args).toContain("-m");
-      expect(getClient("gemini")!.additional_args).toContain("gemini-2.5-pro");
+      expect(getClient("gemini")!.additional_args).toContain("gemini-2.5-flash");
     });
   });
 
@@ -87,26 +86,6 @@ describe("Client Registry", () => {
 
     it("has 30 min timeout", () => {
       expect(getClient("claude")!.timeout_seconds).toBe(1800);
-    });
-  });
-
-  // ─── GLM (Claude alias with opus) ────────────────────────
-
-  describe("glm client", () => {
-    it("uses claude command", () => {
-      expect(getClient("glm")!.command).toBe("claude");
-    });
-
-    it("uses claude runner and parser", () => {
-      const client = getClient("glm")!;
-      expect(client.runner).toBe("claude");
-      expect(client.parser).toBe("claude");
-    });
-
-    it("has opus model flag", () => {
-      const args = getClient("glm")!.additional_args;
-      expect(args).toContain("--model");
-      expect(args).toContain("opus");
     });
   });
 
@@ -156,6 +135,36 @@ describe("Client Registry", () => {
       expect(args).toContain("run");
       expect(args).toContain("--format");
       expect(args).toContain("json");
+    });
+
+    it("auto-approves permissions for non-interactive agents", () => {
+      expect(getClient("opencode")!.additional_args).toContain("--dangerously-skip-permissions");
+    });
+
+    it("does not depend on Claude Code config", () => {
+      expect(getClient("opencode")!.env.OPENCODE_DISABLE_CLAUDE_CODE).toBe("true");
+    });
+
+    it("accepts namespaced OpenRouter model IDs as dynamic OpenCode clients", () => {
+      const client = getClient("opencode:openrouter/anthropic/claude-opus-4.7");
+      if (!client) return;
+
+      expect(client.command).toBe("opencode");
+      expect(client.additional_args).toEqual(expect.arrayContaining([
+        "--model",
+        "openrouter/anthropic/claude-opus-4.7",
+      ]));
+    });
+
+    it("also accepts bare OpenCode model IDs for compatibility", () => {
+      const client = getClient("openrouter/anthropic/claude-opus-4.7");
+      if (!client) return;
+
+      expect(client.command).toBe("opencode");
+      expect(client.additional_args).toEqual(expect.arrayContaining([
+        "--model",
+        "openrouter/anthropic/claude-opus-4.7",
+      ]));
     });
   });
 

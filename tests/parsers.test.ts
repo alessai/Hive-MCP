@@ -246,6 +246,12 @@ describe("OpenCodeParser", () => {
     const jsonl = JSON.stringify({ type: "text", part: { text: 123 } });
     expect(parser.parse(jsonl, "")).toBe(jsonl);
   });
+
+  it("throws ParserError on explicit error events", () => {
+    const jsonl = JSON.stringify({ type: "error", message: "model failed" });
+    expect(() => parser.parse(jsonl, "")).toThrow(ParserError);
+    expect(() => parser.parse(jsonl, "")).toThrow("OpenCode error: model failed");
+  });
 });
 
 // ─── KiloParser ──────────────────────────────────────────────

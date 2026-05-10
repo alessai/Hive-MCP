@@ -2,8 +2,10 @@
   "name": "opencode",
   "command": "opencode",
   "runner": "opencode",
-  "additional_args": [],
-  "env": {},
+  "additional_args": ["--dangerously-skip-permissions"],
+  "env": {
+    "OPENCODE_DISABLE_CLAUDE_CODE": "true"
+  },
   "timeout_seconds": 300,
   "roles": {}
 }

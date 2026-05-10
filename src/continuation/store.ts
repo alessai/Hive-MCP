@@ -143,7 +143,7 @@ export async function addTurn(
 }
 
 export async function buildContext(id: string): Promise<string> {
-  const thread = await readThread(id);
+  const thread = await getThread(id);
   if (!thread || thread.turns.length === 0) return "";
 
   return thread.turns

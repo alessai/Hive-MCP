@@ -1,13 +1,22 @@
 import type { AgentRequest, AgentResponse, ProgressCallback } from "../types.js";
-import { getClient, listClients } from "../config/registry.js";
+import { getClient, listClients, opencodeModelClientHint } from "../config/registry.js";
 import { createAgent } from "../agents/factory.js";
-import { getParser } from "../parsers/index.js";
+import { getParser, ParserError } from "../parsers/index.js";
 import { loadSystemPrompt } from "../prompts/loader.js";
 import { getThread, createThread, addTurn, buildContext } from "../continuation/store.js";
+import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "../config/constants.js";
+import { log } from "../log.js";
+import { recordClientUse } from "../models/usage.js";
 
-export async function handleHive(request: AgentRequest, onProgress?: ProgressCallback): Promise<AgentResponse> {
+function clampTimeout(timeout: number | undefined, fallback: number): number {
+  const value = timeout ?? fallback ?? DEFAULT_TIMEOUT_SECONDS;
+  return Math.min(Math.max(1, Math.floor(value)), MAX_TIMEOUT_SECONDS);
+}
+
+export async function handleHive(request: AgentRequest, onProgress?: ProgressCallback, signal?: AbortSignal): Promise<AgentResponse> {
   const startTime = Date.now();
   const role = request.role ?? "default";
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
     // Resolve client
@@ -18,11 +27,26 @@ export async function handleHive(request: AgentRequest, onProgress?: ProgressCal
         role,
         success: false,
         response: "",
-        error: `Unknown client "${request.client}". Available: ${listClients().join(", ")}`,
+        error: `Unknown client "${request.client}". Available: ${listClients().join(", ")}. OpenCode model clients can be addressed as ${opencodeModelClientHint()} (example: opencode:openai/gpt-5.5).`,
         duration_ms: Date.now() - startTime,
         truncated: false,
       };
     }
+
+    const timeoutSeconds = clampTimeout(request.timeout_seconds, client.timeout_seconds);
+    const runClient = timeoutSeconds === client.timeout_seconds
+      ? client
+      : { ...client, timeout_seconds: timeoutSeconds };
+    await recordClientUse(request.client);
+
+    log(`[${request.client}] Request started`, "INFO", {
+      request_id: requestId,
+      role,
+      cwd: request.cwd ?? process.cwd(),
+      timeout_seconds: timeoutSeconds,
+      prompt_chars: request.prompt.length,
+      prompt_preview: process.env.HIVE_LOG_PROMPTS === "1" ? request.prompt.slice(0, 500) : undefined,
+    });
 
     // Build user prompt with continuation context
     let userPrompt = request.prompt;
@@ -40,21 +64,37 @@ export async function handleHive(request: AgentRequest, onProgress?: ProgressCal
 
     // Spawn agent
     await onProgress?.(`Spawning ${request.client} CLI...`, 0, 100);
-    const agent = createAgent(client);
+    const agent = createAgent(runClient);
     const spawnResult = await agent.run(
       systemPrompt ?? undefined,
       userPrompt,
       request.cwd,
       onProgress,
+      signal,
     );
 
     // Parse output
     await onProgress?.(`Parsing ${request.client} output...`, 90, 100);
-    const parser = getParser(client.parser);
+    const parser = getParser(runClient.parser);
     let response: string;
+    let parserError: string | undefined;
     try {
       response = parser.parse(spawnResult.stdout, spawnResult.stderr);
-    } catch {
+    } catch (err) {
+      if (err instanceof ParserError) {
+        parserError = err.message;
+        log(`[${request.client}] Parser reported model/CLI error`, "WARN", {
+          request_id: requestId,
+          parser: runClient.parser,
+          error: err.message,
+        });
+      } else {
+        log(`[${request.client}] Parser failed; falling back to raw output`, "WARN", {
+          request_id: requestId,
+          parser: runClient.parser,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       response = spawnResult.stdout.trim() || spawnResult.stderr.trim() || "(no output)";
     }
 
@@ -73,18 +113,35 @@ export async function handleHive(request: AgentRequest, onProgress?: ProgressCal
     }
 
     // Determine success
-    const success = !spawnResult.timedOut && spawnResult.exitCode === 0;
+    const success = !spawnResult.timedOut && !spawnResult.aborted && spawnResult.exitCode === 0 && !parserError;
 
     // Build error message if needed
     let error: string | undefined;
-    if (spawnResult.timedOut) {
-      error = `Process timed out after ${client.timeout_seconds}s`;
+    if (parserError) {
+      error = parserError;
+    } else if (spawnResult.aborted) {
+      error = `Process aborted before completion. Captured ${spawnResult.stdout.length} stdout chars and ${spawnResult.stderr.length} stderr chars before termination.`;
+    } else if (spawnResult.timedOut) {
+      error = `Process timed out after ${timeoutSeconds}s. Captured ${spawnResult.stdout.length} stdout chars and ${spawnResult.stderr.length} stderr chars before termination.`;
     } else if (spawnResult.exitCode !== 0) {
       error = `Process exited with code ${spawnResult.exitCode}`;
       if (spawnResult.stderr.trim()) {
         error += `: ${spawnResult.stderr.trim().slice(0, 500)}`;
       }
     }
+
+    log(`[${request.client}] Request finished`, success ? "INFO" : "WARN", {
+      request_id: requestId,
+      role,
+      success,
+      duration_ms: Date.now() - startTime,
+      timed_out: spawnResult.timedOut,
+      aborted: spawnResult.aborted ?? false,
+      exit_code: spawnResult.exitCode,
+      response_chars: response.length,
+      truncated,
+      error,
+    });
 
     // Store continuation turns only on success — failed responses pollute context
     if (request.continuation_id && success) {
